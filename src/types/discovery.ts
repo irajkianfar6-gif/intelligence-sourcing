@@ -49,6 +49,28 @@ export interface SupplierContactMetadata {
   verifiedEmailDomain: string;
 }
 
+export interface AlibabaVerificationProfile {
+  storeSubdomain: string;
+  storeUrl: string;
+  badgeTier: 'Verified Pro (SGS/TÜV)' | 'Verified Supplier' | 'Gold Supplier';
+  yearsOnAlibaba: number;
+  tradeAssuranceLimitUSD: number;
+  onlineRevenueLast12mUSD: number;
+  onlineTransactionsCount: number;
+  responseRatePercent: number;
+  avgResponseTimeHours: number;
+  onTimeDeliveryPercent: number;
+  reorderRatePercent: number;
+  storeRating: number; // out of 5.0
+  reviewsCount: number;
+  inspectionAgency: 'SGS' | 'TÜV Rheinland' | 'Bureau Veritas' | 'Intertek' | 'بدون ممیزی حضوری';
+  auditReportNumber: string;
+  businessTypeOnLicense: 'Manufacturer (تولیدکننده مستقیم در جواز کسب)' | 'Trading Company (بازرگانی / واسطه)' | 'Combined (تولیدی-بازرگانی)';
+  oemOdmCapable: boolean;
+  isBaitPriceFlagged: boolean;
+  baitPriceNoteFa: string;
+}
+
 export interface ExtractedSupplierCandidate {
   id: string;
   supplier: Supplier;
@@ -66,8 +88,22 @@ export interface ExtractedSupplierCandidate {
   technicalSpecsComparison: ExtractedTechnicalSpec[];
   verifiedSources: VerifiedExtractionSource[];
   contactMetadata: SupplierContactMetadata;
+  alibabaProfile?: AlibabaVerificationProfile;
   isImportedToDirectory?: boolean;
   aiGroundedSummaryFa?: string;
+}
+
+export interface AlibabaScanQueryInput {
+  productKeyword: string;
+  hsCode?: string;
+  directAlibabaUrl?: string;
+  onlyVerifiedPro: boolean;
+  requireTradeAssurance: boolean;
+  onlyDirectManufacturers: boolean;
+  minYearsOnAlibaba: number;
+  filterOutBaitPrices: boolean;
+  targetMaxFobUSD?: number;
+  orderQuantityMT?: number;
 }
 
 export interface DiscoveryQueryInput {

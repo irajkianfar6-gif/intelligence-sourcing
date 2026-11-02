@@ -129,6 +129,105 @@ async function startServer() {
     }
   });
 
+  // Alibaba Deep Verified Supplier Scanner Endpoint (site:alibaba.com + urlContext)
+  app.post('/api/discovery/alibaba-scan', async (req, res) => {
+    const {
+      productKeyword = 'Hot-Dip Galvanized Steel Coil Z275',
+      hsCode = '7210.49',
+      directAlibabaUrl = '',
+      onlyVerifiedPro = true,
+      targetMaxFobUSD = 700,
+    } = req.body || {};
+
+    const ai = getAiClient();
+    if (!ai) {
+      return res.json({
+        aiEnabled: false,
+        items: [],
+        groundingUrls: [],
+        synthesisFa: '',
+      });
+    }
+
+    try {
+      const tools: any[] = [{ googleSearch: {} }];
+      if (directAlibabaUrl && directAlibabaUrl.trim().startsWith('http')) {
+        tools.push({ urlContext: {} });
+      }
+
+      const alibabaPrompt = `Search site:alibaba.com for ${onlyVerifiedPro ? 'Verified Pro (SGS / TÜV audited)' : 'Verified'} direct manufacturers of "${productKeyword}" (HS Code: ${hsCode})${directAlibabaUrl ? ` and analyze this Alibaba URL: ${directAlibabaUrl}` : ''}. Identify 2 to 3 real verified factory stores on Alibaba.com, their estimated FOB price in USD (near ${targetMaxFobUSD} USD), MOQ, monthly capacity, city, and write a brief Persian analytical summary explaining their Trade Assurance and factory audit status.`;
+
+      const groundedResponse = await ai.models.generateContent({
+        model: 'gemini-3.8-flash',
+        contents: alibabaPrompt,
+        config: {
+          tools,
+        },
+      });
+
+      const groundingChunks =
+        groundedResponse.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+      const groundingUrls: { title: string; uri: string }[] = [];
+      for (const chunk of groundingChunks) {
+        if (chunk.web?.uri) {
+          groundingUrls.push({
+            title: chunk.web.title || chunk.web.uri,
+            uri: chunk.web.uri,
+          });
+        }
+      }
+
+      const rawText = groundedResponse.text || '';
+      const structuredResponse = await ai.models.generateContent({
+        model: 'gemini-3.8-flash',
+        contents: `Extract Alibaba verified supplier details from the following research into JSON:\n\n${rawText}`,
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              synthesisFa: { type: Type.STRING },
+              items: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    name: { type: Type.STRING },
+                    faName: { type: Type.STRING },
+                    country: { type: Type.STRING },
+                    city: { type: Type.STRING },
+                    unitPriceFobUSD: { type: Type.NUMBER },
+                    moq: { type: Type.NUMBER },
+                    capacityMonthly: { type: Type.NUMBER },
+                    foundedYear: { type: Type.INTEGER },
+                  },
+                  required: ['name', 'country', 'unitPriceFobUSD'],
+                },
+              },
+            },
+            required: ['synthesisFa', 'items'],
+          },
+        },
+      });
+
+      const parsed = JSON.parse((structuredResponse.text || '{}').trim());
+      return res.json({
+        aiEnabled: true,
+        items: Array.isArray(parsed.items) ? parsed.items : [],
+        groundingUrls,
+        synthesisFa: parsed.synthesisFa || '',
+      });
+    } catch (error: any) {
+      return res.json({
+        aiEnabled: false,
+        items: [],
+        groundingUrls: [],
+        synthesisFa: '',
+        fallbackReason: error?.message || 'Fallback to Alibaba verified trade database',
+      });
+    }
+  });
+
   const isProd = process.env.NODE_ENV === 'production';
   if (!isProd) {
     const vite = await createViteServer({

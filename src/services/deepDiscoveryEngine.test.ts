@@ -6,6 +6,8 @@ import {
   mergeCandidateIntoAppState,
   getInitialContinuousJobs,
   runContinuousJobCycle,
+  detectAlibabaBaitPrice,
+  executeAlibabaDeepScan,
 } from './deepDiscoveryEngine';
 import { MOCK_SUPPLIERS, MOCK_LANDED_COST_ITEMS } from '../data/mockData';
 
@@ -115,3 +117,35 @@ test('runContinuousJobCycle updates job metrics, logs price quote, and creates a
   assert.ok(updatedSuppliers.length >= MOCK_SUPPLIERS.length);
   assert.ok(generatedAlert.title.includes('$'));
 });
+
+test('detectAlibabaBaitPrice flags unrealistically low bait listings and passes genuine FOB quotes', () => {
+  const baitCheck = detectAlibabaBaitPrice(430, 665);
+  assert.equal(baitCheck.isBait, true);
+  assert.ok(baitCheck.noteFa.includes('قیمت طعمه‌ای'));
+
+  const validCheck = detectAlibabaBaitPrice(632, 665);
+  assert.equal(validCheck.isBait, false);
+  assert.ok(validCheck.noteFa.includes('Trade Assurance'));
+});
+
+test('executeAlibabaDeepScan filters Verified Pro manufacturers and extracts direct Alibaba URLs', () => {
+  const verifiedScan = executeAlibabaDeepScan({
+    productKeyword: 'Hot-Dip Galvanized Steel Coil DX51D Z275',
+    directAlibabaUrl: 'https://baosteel-export.en.alibaba.com',
+    onlyVerifiedPro: true,
+    requireTradeAssurance: true,
+    minYearsOnAlibaba: 5,
+    onlyDirectManufacturers: true,
+    filterOutBaitPrices: true,
+    orderQuantityMT: 100,
+  });
+
+  assert.ok(verifiedScan.candidates.length >= 4);
+  assert.ok(verifiedScan.candidates.every((c) => c.alibabaProfile?.badgeTier === 'Verified Pro (SGS/TÜV)'));
+  assert.ok(verifiedScan.candidates.every((c) => !c.alibabaProfile?.isBaitPriceFlagged));
+  assert.ok(
+    verifiedScan.candidates.some((c) => c.alibabaProfile?.storeSubdomain === 'baosteel-export.en.alibaba.com'),
+    'Direct Alibaba store URL should be parsed and included in candidates'
+  );
+});
+
