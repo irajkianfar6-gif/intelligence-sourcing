@@ -22,6 +22,8 @@ import { StatusPill } from '../common/StatusPill';
 interface ProductsPageProps {
   products: ProductSpec[];
   onSelectProduct: (product: ProductSpec) => void;
+  onAddProduct?: (product: ProductSpec) => void;
+  onTriggerDeepDiscovery?: (productName: string, hsCode: string) => void;
   onNavigate: (page: PageId, targetId?: string) => void;
   onShowToast: (title: string, desc?: string, type?: 'success' | 'info' | 'warning') => void;
 }
@@ -60,6 +62,8 @@ const AVAILABLE_COUNTRIES = [
 export const ProductsPage: React.FC<ProductsPageProps> = ({
   products,
   onSelectProduct,
+  onAddProduct,
+  onTriggerDeepDiscovery,
   onNavigate,
   onShowToast,
 }) => {
@@ -162,7 +166,11 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
       completenessPercent: completenessScore,
     };
     setActiveProductList([newProd, ...activeProductList]);
+    if (onAddProduct) {
+      onAddProduct(newProd);
+    }
     onShowToast('کالای جدید با موفقیت ثبت شد', 'مشخصات با پایگاه داده تأمین‌کنندگان تطبیق داده شد', 'success');
+    return newProd;
   };
 
   return (
@@ -577,16 +585,20 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
                   <ArrowLeft className="w-3.5 h-3.5" />
                 </button>
               ) : (
-                <button
-                  onClick={() => {
-                    handleSaveProduct();
-                    onNavigate('suppliers');
-                  }}
-                  className="px-6 py-2.5 rounded-full bg-[#F3F94A] text-[#111111] text-xs font-black hover:bg-[#e4eb31] flex items-center gap-2"
-                >
-                  <span>یافتن تأمین‌کنندگان منطبق</span>
-                  <Search className="w-3.5 h-3.5" />
-                </button>
+                  <button
+                    onClick={() => {
+                      handleSaveProduct();
+                      if (onTriggerDeepDiscovery) {
+                        onTriggerDeepDiscovery(formData.name, formData.hsCode);
+                      } else {
+                        onNavigate('suppliers');
+                      }
+                    }}
+                    className="px-6 py-2.5 rounded-full bg-[#F3F94A] text-[#111111] text-xs font-black hover:bg-[#e4eb31] flex items-center gap-2"
+                  >
+                    <span>کاوش عمیق و استخراج تأمین‌کنندگان</span>
+                    <Search className="w-3.5 h-3.5" />
+                  </button>
               )}
             </div>
           </div>
@@ -629,6 +641,21 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
                 {toPersianDigits(matchingSuppliersCount)}
               </span>
             </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                if (onTriggerDeepDiscovery) {
+                  onTriggerDeepDiscovery(formData.name, formData.hsCode);
+                } else {
+                  onNavigate('suppliers');
+                }
+              }}
+              className="w-full py-2.5 px-4 rounded-full bg-[#111111] text-[#F3F94A] hover:bg-black text-xs font-black transition-all flex items-center justify-center gap-2"
+            >
+              <Search className="w-3.5 h-3.5" />
+              <span>کاوش عمیق و استخراج قیمت برای این کالا</span>
+            </button>
           </div>
 
           {/* AI Suggestions Card */}

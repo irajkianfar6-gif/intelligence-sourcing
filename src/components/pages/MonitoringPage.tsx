@@ -15,7 +15,7 @@ import {
   Smartphone,
   Zap,
 } from 'lucide-react';
-import { MonitoringAlert, ProductSpec, PageId } from '../../types';
+import { MonitoringAlert, ProductSpec, PageId, ContinuousExtractionJob } from '../../types';
 import { StatusPill } from '../common/StatusPill';
 import { Sparkline } from '../common/Sparkline';
 import { toPersianDigits, formatPersianNumber } from '../../utils/formatters';
@@ -24,6 +24,8 @@ import { LiveMarketTicker } from '../market/LiveMarketTicker';
 interface MonitoringPageProps {
   alerts: MonitoringAlert[];
   products: ProductSpec[];
+  continuousJobs?: ContinuousExtractionJob[];
+  onRunJobCycle?: (jobId: string) => void;
   onNavigate: (page: PageId, targetId?: string) => void;
   onShowToast: (title: string, desc?: string, type?: 'success' | 'info' | 'warning') => void;
 }
@@ -31,6 +33,8 @@ interface MonitoringPageProps {
 export const MonitoringPage: React.FC<MonitoringPageProps> = ({
   alerts,
   products,
+  continuousJobs = [],
+  onRunJobCycle,
   onNavigate,
   onShowToast,
 }) => {
@@ -96,11 +100,17 @@ export const MonitoringPage: React.FC<MonitoringPageProps> = ({
           </div>
 
           <button
-            onClick={() => onShowToast('فرم ثبت پرونده پایش جدید باز شد', '', 'info')}
+            onClick={() => {
+              if (continuousJobs.length > 0 && onRunJobCycle) {
+                onRunJobCycle(continuousJobs[0].id);
+              } else {
+                onNavigate('suppliers');
+              }
+            }}
             className="px-5 py-2.5 rounded-full bg-[#111111] text-white hover:bg-black font-semibold text-xs transition-all flex items-center gap-2"
           >
-            <Plus className="w-3.5 h-3.5 text-[#F3F94A]" />
-            <span>پرونده پایش جدید</span>
+            <Zap className="w-3.5 h-3.5 text-[#F3F94A]" />
+            <span>استخراج آنی قیمت‌ها و تأمین‌کنندگان</span>
           </button>
         </div>
       </section>
@@ -355,20 +365,41 @@ export const MonitoringPage: React.FC<MonitoringPageProps> = ({
             </div>
           </div>
 
-          {/* Watchlist Cards Per Product */}
+          {/* Watchlist & Continuous Crawlers Cards Per Product */}
           <div className="p-6 rounded-3xl bg-[#FFFFFF] border border-[#E5E3DC] space-y-3">
-            <h4 className="text-sm font-bold text-[#111111]">پرونده‌های فعال پایش کالا</h4>
-            <div className="space-y-2">
-              {products.map((p) => (
+            <div className="flex items-center justify-between">
+              <h4 className="text-sm font-bold text-[#111111]">ربات‌های خزنده مستمر قیمت و تأمین‌کننده</h4>
+              <span className="text-[11px] font-bold text-[#2D7D32]">
+                {toPersianDigits(continuousJobs.length || products.length)} خزنده فعال
+              </span>
+            </div>
+            <div className="space-y-2.5">
+              {(continuousJobs.length > 0 ? continuousJobs : []).map((job) => (
                 <div
-                  key={p.id}
-                  className="p-3 rounded-2xl bg-[#F5F4EE] border border-[#E5E3DC] flex items-center justify-between text-xs"
+                  key={job.id}
+                  className="p-3 rounded-2xl bg-[#F5F4EE] border border-[#E5E3DC] space-y-2 text-xs"
                 >
-                  <div className="truncate pl-2">
-                    <div className="font-bold text-[#111111] truncate">{p.name.split(' (')[0]}</div>
-                    <div className="text-[10px] text-[#73726E]">HS {p.hsCode} | پایش فعال</div>
+                  <div className="flex items-center justify-between">
+                    <div className="truncate pl-2">
+                      <div className="font-bold text-[#111111] truncate">{job.productName}</div>
+                      <div className="text-[10px] text-[#73726E]">
+                        HS {job.hsCode} | بهترین نرخ: {formatPersianNumber(job.bestDiscoveredFobUSD)} $
+                      </div>
+                    </div>
+                    <span className="w-2.5 h-2.5 rounded-full bg-[#2D7D32] shrink-0" />
                   </div>
-                  <span className="w-2.5 h-2.5 rounded-full bg-[#2D7D32]" />
+                  <div className="flex items-center justify-between pt-1 border-t border-[#E5E3DC]">
+                    <span className="text-[10px] text-[#73726E]">آخرین اسکن: {job.lastRunFa}</span>
+                    {onRunJobCycle && (
+                      <button
+                        type="button"
+                        onClick={() => onRunJobCycle(job.id)}
+                        className="px-2.5 py-1 rounded-full bg-[#111111] text-[#F3F94A] text-[10px] font-bold hover:bg-black"
+                      >
+                        استخراج آنی
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>

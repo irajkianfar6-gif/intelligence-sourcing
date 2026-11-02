@@ -11,16 +11,32 @@ import {
   ShieldCheck,
   Building,
   Filter,
+  Database,
+  Sparkles,
 } from 'lucide-react';
-import { Supplier, PageId } from '../../types';
+import {
+  Supplier,
+  PageId,
+  ProductSpec,
+  ExtractedSupplierCandidate,
+  ContinuousExtractionJob,
+} from '../../types';
 import { StatusPill } from '../common/StatusPill';
 import { HatchedProgressBar } from '../common/HatchedBar';
 import { toPersianDigits, formatPersianNumber } from '../../utils/formatters';
 import { FakeSupplierDetectorModal } from '../tools/FakeSupplierDetectorModal';
 import { SupplierManagementModal } from '../suppliers/SupplierManagementModal';
+import { DeepDiscoveryCenter } from '../discovery/DeepDiscoveryCenter';
 
 interface SuppliersPageProps {
   suppliers: Supplier[];
+  products?: ProductSpec[];
+  continuousJobs?: ContinuousExtractionJob[];
+  initialDiscoveryQuery?: { productName: string; hsCode: string };
+  onImportCandidates?: (candidates: ExtractedSupplierCandidate[]) => void;
+  onRunJobCycle?: (jobId: string) => void;
+  onToggleJobStatus?: (jobId: string) => void;
+  onCreateContinuousJob?: (job: ContinuousExtractionJob) => void;
   onSelectSupplier: (supplier: Supplier) => void;
   onNavigate: (page: PageId, targetId?: string) => void;
   onShowToast: (title: string, desc?: string, type?: 'success' | 'info' | 'warning') => void;
@@ -29,6 +45,13 @@ interface SuppliersPageProps {
 
 export const SuppliersPage: React.FC<SuppliersPageProps> = ({
   suppliers,
+  products = [],
+  continuousJobs = [],
+  initialDiscoveryQuery,
+  onImportCandidates,
+  onRunJobCycle,
+  onToggleJobStatus,
+  onCreateContinuousJob,
   onSelectSupplier,
   onNavigate,
   onShowToast,
@@ -42,6 +65,7 @@ export const SuppliersPage: React.FC<SuppliersPageProps> = ({
   const [sortBy, setSortBy] = useState<'trust' | 'lead' | 'price'>('trust');
   const [isFakeDetectorOpen, setIsFakeDetectorOpen] = useState(false);
   const [managingSupplier, setManagingSupplier] = useState<Supplier | null>(null);
+  const [isDiscoveryOpen, setIsDiscoveryOpen] = useState(true);
 
   // Filtered & Sorted suppliers
   const filteredSuppliers = useMemo(() => {
@@ -88,6 +112,73 @@ export const SuppliersPage: React.FC<SuppliersPageProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* Deep Supplier & Continuous Price Extraction Hub */}
+      {isDiscoveryOpen ? (
+        <div className="space-y-2">
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => setIsDiscoveryOpen(false)}
+              className="text-xs font-bold text-[#73726E] hover:text-[#111111] px-3 py-1 rounded-full bg-white border border-[#E5E3DC]"
+            >
+              جمع‌کردن پنل کاوش عمیق و مشاهده فقط جدول دایرکتوری
+            </button>
+          </div>
+          <DeepDiscoveryCenter
+            products={products}
+            existingSuppliers={suppliers}
+            continuousJobs={continuousJobs}
+            initialProductQuery={initialDiscoveryQuery?.productName}
+            initialHsCode={initialDiscoveryQuery?.hsCode}
+            onImportCandidates={(cands) => {
+              if (onImportCandidates) onImportCandidates(cands);
+            }}
+            onInspectSupplierVerification={(cand) => {
+              if (onImportCandidates) onImportCandidates([cand]);
+              onSelectSupplier(cand.supplier);
+              onNavigate('verification', cand.supplier.id);
+            }}
+            onAddCandidateToRfq={(cand) => {
+              if (onImportCandidates) onImportCandidates([cand]);
+              onAddToRFQ(cand.supplier);
+            }}
+            onRunJobCycle={(jobId) => {
+              if (onRunJobCycle) onRunJobCycle(jobId);
+            }}
+            onToggleJobStatus={(jobId) => {
+              if (onToggleJobStatus) onToggleJobStatus(jobId);
+            }}
+            onCreateContinuousJob={(job) => {
+              if (onCreateContinuousJob) onCreateContinuousJob(job);
+            }}
+            onShowToast={onShowToast}
+          />
+        </div>
+      ) : (
+        <div className="p-4 rounded-3xl bg-[#111111] text-white flex items-center justify-between flex-wrap gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-[#F3F94A] text-[#111111] flex items-center justify-center">
+              <Database className="w-5 h-5" />
+            </div>
+            <div>
+              <span className="text-sm font-black block">
+                موتور کاوش عمیق و استخراج مستمر قیمت‌ها و مشخصات تأمین‌کنندگان
+              </span>
+              <span className="text-[11px] text-white/70">
+                اسکن بارنامه‌های گمرکی B/L، رجیستری کارخانجات و استعلام قیمت‌های پلکانی
+              </span>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsDiscoveryOpen(true)}
+            className="px-5 py-2 rounded-full bg-[#F3F94A] text-[#111111] text-xs font-black hover:bg-[#e5ec3b]"
+          >
+            بازکردن مرکز کاوش و استخراج عمیق
+          </button>
+        </div>
+      )}
+
       {/* KPI Cards Row */}
       <section className="grid grid-cols-1 md:grid-cols-3 gap-5" aria-label="آمار تأمین‌کنندگان">
         <div className="p-5 rounded-3xl bg-[#FFFFFF] border border-[#E5E3DC] flex items-center justify-between">

@@ -259,3 +259,6 @@ export interface RankingWeights {
   countryRisk: number; // default 5%
   responsiveness: number; // default 5%
 }
+
+export * from './discovery';
+

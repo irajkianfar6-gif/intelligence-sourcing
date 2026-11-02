@@ -1,5 +1,14 @@
 import React, { useState } from 'react';
-import { PageId, Supplier, ProductSpec, RankingWeights } from './types';
+import {
+  PageId,
+  Supplier,
+  ProductSpec,
+  RankingWeights,
+  LandedCostBreakdown,
+  MonitoringAlert,
+  ExtractedSupplierCandidate,
+  ContinuousExtractionJob,
+} from './types';
 import {
   MOCK_SUPPLIERS,
   MOCK_PRODUCTS,
@@ -9,6 +18,11 @@ import {
   MOCK_ALERTS,
   INITIAL_RANKING_WEIGHTS,
 } from './data/mockData';
+import {
+  mergeCandidateIntoAppState,
+  getInitialContinuousJobs,
+  runContinuousJobCycle,
+} from './services/deepDiscoveryEngine';
 import { Shell } from './components/layout/Shell';
 import { DashboardPage } from './components/pages/DashboardPage';
 import { ProductsPage } from './components/pages/ProductsPage';
@@ -27,6 +41,13 @@ export default function App() {
   const [currentPage, setCurrentPage] = useState<PageId>('dashboard');
   const [suppliers, setSuppliers] = useState<Supplier[]>(MOCK_SUPPLIERS);
   const [products, setProducts] = useState<ProductSpec[]>(MOCK_PRODUCTS);
+  const [landedCostItems, setLandedCostItems] = useState<LandedCostBreakdown[]>(MOCK_LANDED_COST_ITEMS);
+  const [alerts, setAlerts] = useState<MonitoringAlert[]>(MOCK_ALERTS);
+  const [continuousJobs, setContinuousJobs] = useState<ContinuousExtractionJob[]>(getInitialContinuousJobs);
+  const [discoveryQuery, setDiscoveryQuery] = useState<{ productName: string; hsCode: string }>({
+    productName: MOCK_PRODUCTS[0].name,
+    hsCode: MOCK_PRODUCTS[0].hsCode,
+  });
   const [selectedProductId, setSelectedProductId] = useState<string>('all');
   const [selectedSupplierId, setSelectedSupplierId] = useState<string>('hanoi-steel');
   const [rfqs, setRfqs] = useState(MOCK_RFQS);
@@ -64,6 +85,91 @@ export default function App() {
       }
     }
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleImportCandidates = (candidates: ExtractedSupplierCandidate[]) => {
+    if (candidates.length === 0) return;
+    const { updatedSuppliers, updatedLandedCosts, addedCount } = mergeCandidateIntoAppState(
+      candidates,
+      suppliers,
+      landedCostItems
+    );
+    setSuppliers(updatedSuppliers);
+    setLandedCostItems(updatedLandedCosts);
+
+    if (addedCount > 0) {
+      showToast(
+        `${addedCount.toLocaleString('fa-IR')} تأمین‌کننده جدید به پایگاه و ماتریس مقایسه افزوده شد`,
+        'مشخصات فنی، لایه‌های اعتبارسنجی و بهای تمام‌شده Landed Cost همگام‌سازی گردید.',
+        'success'
+      );
+    } else {
+      showToast(
+        'قیمت‌ها و مشخصات تأمین‌کننده در پایگاه به‌روزرسانی شد',
+        'آخرین نرخ FOB و محاسبات Landed Cost اعمال گردید.',
+        'info'
+      );
+    }
+  };
+
+  const handleRunJobCycle = (jobId: string) => {
+    const targetJob = continuousJobs.find((j) => j.id === jobId);
+    if (!targetJob) return;
+
+    const { updatedJob, extractedResult, updatedSuppliers, generatedAlert } =
+      runContinuousJobCycle(targetJob, suppliers);
+
+    setContinuousJobs((prev) => prev.map((j) => (j.id === jobId ? updatedJob : j)));
+    setSuppliers(updatedSuppliers);
+    if (extractedResult.candidates.length > 0) {
+      const merged = mergeCandidateIntoAppState(
+        [extractedResult.candidates[0]],
+        updatedSuppliers,
+        landedCostItems
+      );
+      setLandedCostItems(merged.updatedLandedCosts);
+    }
+    setAlerts((prev) => [generatedAlert, ...prev]);
+
+    showToast(
+      `سیکل استخراج خزنده «${targetJob.productName.slice(0, 24)}» اجرا شد`,
+      `بهترین نرخ FOB کشف‌شده: ${updatedJob.bestDiscoveredFobUSD.toLocaleString('fa-IR')} دلار (${updatedJob.bestDiscoveredSupplierName})`,
+      'success'
+    );
+  };
+
+  const handleToggleJobStatus = (jobId: string) => {
+    setContinuousJobs((prev) =>
+      prev.map((j) => {
+        if (j.id !== jobId) return j;
+        const isCurrentlyActive = j.status.includes('فعال');
+        return {
+          ...j,
+          status: isCurrentlyActive ? 'متوقف‌شده' : 'فعال (در حال پایش)',
+        };
+      })
+    );
+    showToast('وضعیت خزنده مستمر تغییر یافت', '', 'info');
+  };
+
+  const handleCreateContinuousJob = (newJob: ContinuousExtractionJob) => {
+    setContinuousJobs((prev) => [newJob, ...prev]);
+    showToast(
+      `خزنده مستمر برای «${newJob.productName}» فعال شد`,
+      'رصد بارنامه‌های گمرکی و لیست قیمت کارخانجات در پس‌زمینه آغاز گردید.',
+      'success'
+    );
+  };
+
+  const handleTriggerDeepDiscovery = (productName: string, hsCode: string) => {
+    setDiscoveryQuery({ productName, hsCode });
+    setCurrentPage('suppliers');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    showToast(
+      `موتور کاوش عمیق برای «${productName.slice(0, 28)}» آماده شد`,
+      `پارامترهای فنی و کد تعرفه ${hsCode} در مرکز استخراج بارگذاری گردید.`,
+      'info'
+    );
   };
 
   const handleTriggerDownload = (filename: string, format: 'PDF' | 'XLSX' | 'CSV') => {
@@ -120,7 +226,11 @@ export default function App() {
         showToast('تأمین‌کنندگان بازارهای جایگزین فیلتر شدند', '', 'info');
         break;
       case 'monitoring':
-        showToast('پرونده پایش جدید ایجاد شد', 'سیگنال‌های نوسان کالا در لیست رصد لحظه‌ای قرار گرفت.', 'success');
+        if (continuousJobs.length > 0) {
+          handleRunJobCycle(continuousJobs[0].id);
+        } else {
+          showToast('پرونده پایش جدید ایجاد شد', 'سیگنال‌های نوسان کالا در لیست رصد لحظه‌ای قرار گرفت.', 'success');
+        }
         break;
       case 'reports':
         handleTriggerDownload('گزارش_جامع_مدیریت_سورسینگ_و_واردات_۱۴۰۳', 'PDF');
@@ -134,123 +244,142 @@ export default function App() {
   return (
     <MarketDataProvider>
       <Shell
-      currentPage={currentPage}
-      onNavigate={handleNavigate}
-      products={products}
-      selectedProductId={selectedProductId}
-      onSelectProduct={(id) => {
-        setSelectedProductId(id);
-        const p = products.find((item) => item.id === id);
-        if (p) {
-          showToast(`فیلتر روی کالای «${p.name.slice(0, 28)}» اعمال شد`, '', 'info');
-        }
-      }}
-      alerts={MOCK_ALERTS}
-      onTriggerPageCTA={handleTriggerPageCTA}
-      searchQuery={searchQuery}
-      onSearchChange={(q) => {
-        setSearchQuery(q);
-        if (q.trim() && currentPage !== 'suppliers' && currentPage !== 'products') {
-          // auto navigate to suppliers if searching
-          setCurrentPage('suppliers');
-        }
-      }}
-    >
-      {currentPage === 'dashboard' && (
-        <DashboardPage
-          onNavigate={handleNavigate}
-          suppliers={suppliers}
-          rfqs={rfqs}
-          alerts={MOCK_ALERTS}
-          onTriggerDownload={handleTriggerDownload}
-        />
-      )}
+        currentPage={currentPage}
+        onNavigate={handleNavigate}
+        products={products}
+        selectedProductId={selectedProductId}
+        onSelectProduct={(id) => {
+          setSelectedProductId(id);
+          const p = products.find((item) => item.id === id);
+          if (p) {
+            setDiscoveryQuery({ productName: p.name, hsCode: p.hsCode });
+            showToast(`فیلتر روی کالای «${p.name.slice(0, 28)}» اعمال شد`, '', 'info');
+          }
+        }}
+        alerts={alerts}
+        onTriggerPageCTA={handleTriggerPageCTA}
+        searchQuery={searchQuery}
+        onSearchChange={(q) => {
+          setSearchQuery(q);
+          if (q.trim() && currentPage !== 'suppliers' && currentPage !== 'products') {
+            setCurrentPage('suppliers');
+          }
+        }}
+      >
+        {currentPage === 'dashboard' && (
+          <DashboardPage
+            onNavigate={handleNavigate}
+            suppliers={suppliers}
+            rfqs={rfqs}
+            alerts={alerts}
+            onTriggerDownload={handleTriggerDownload}
+          />
+        )}
 
-      {currentPage === 'products' && (
-        <ProductsPage
-          products={products}
-          onSelectProduct={(p) => setSelectedProductId(p.id)}
-          onNavigate={handleNavigate}
-          onShowToast={showToast}
-        />
-      )}
+        {currentPage === 'products' && (
+          <ProductsPage
+            products={products}
+            onSelectProduct={(p) => {
+              setSelectedProductId(p.id);
+              setDiscoveryQuery({ productName: p.name, hsCode: p.hsCode });
+            }}
+            onAddProduct={(newProd) => {
+              setProducts((prev) => [newProd, ...prev]);
+              setSelectedProductId(newProd.id);
+              setDiscoveryQuery({ productName: newProd.name, hsCode: newProd.hsCode });
+            }}
+            onTriggerDeepDiscovery={handleTriggerDeepDiscovery}
+            onNavigate={handleNavigate}
+            onShowToast={showToast}
+          />
+        )}
 
-      {currentPage === 'suppliers' && (
-        <SuppliersPage
-          suppliers={suppliers}
-          onSelectSupplier={(s) => setSelectedSupplierId(s.id)}
-          onNavigate={handleNavigate}
-          onShowToast={showToast}
-          onAddToRFQ={handleAddToRFQ}
-        />
-      )}
+        {currentPage === 'suppliers' && (
+          <SuppliersPage
+            suppliers={suppliers}
+            products={products}
+            continuousJobs={continuousJobs}
+            initialDiscoveryQuery={discoveryQuery}
+            onImportCandidates={handleImportCandidates}
+            onRunJobCycle={handleRunJobCycle}
+            onToggleJobStatus={handleToggleJobStatus}
+            onCreateContinuousJob={handleCreateContinuousJob}
+            onSelectSupplier={(s) => setSelectedSupplierId(s.id)}
+            onNavigate={handleNavigate}
+            onShowToast={showToast}
+            onAddToRFQ={handleAddToRFQ}
+          />
+        )}
 
-      {currentPage === 'verification' && (
-        <VerificationPage
-          supplier={currentSupplier}
-          allSuppliers={suppliers}
-          onSelectSupplier={(s) => setSelectedSupplierId(s.id)}
-          onNavigate={handleNavigate}
-          onRequestSample={handleRequestSample}
-          onShowToast={showToast}
-        />
-      )}
+        {currentPage === 'verification' && (
+          <VerificationPage
+            supplier={currentSupplier}
+            allSuppliers={suppliers}
+            onSelectSupplier={(s) => setSelectedSupplierId(s.id)}
+            onNavigate={handleNavigate}
+            onRequestSample={handleRequestSample}
+            onShowToast={showToast}
+          />
+        )}
 
-      {currentPage === 'comparison' && (
-        <ComparisonPage
-          baseItems={MOCK_LANDED_COST_ITEMS}
-          rankingWeights={rankingWeights}
-          onUpdateWeights={setRankingWeights}
-          onNavigate={handleNavigate}
-          onShowToast={showToast}
-        />
-      )}
+        {currentPage === 'comparison' && (
+          <ComparisonPage
+            baseItems={landedCostItems}
+            rankingWeights={rankingWeights}
+            onUpdateWeights={setRankingWeights}
+            onNavigate={handleNavigate}
+            onShowToast={showToast}
+          />
+        )}
 
-      {currentPage === 'rfq' && (
-        <RfqPage
-          rfqs={rfqs}
-          allSuppliers={suppliers}
-          onNavigate={handleNavigate}
-          onShowToast={showToast}
-        />
-      )}
+        {currentPage === 'rfq' && (
+          <RfqPage
+            rfqs={rfqs}
+            allSuppliers={suppliers}
+            onNavigate={handleNavigate}
+            onShowToast={showToast}
+          />
+        )}
 
-      {currentPage === 'markets' && (
-        <MarketsPage
-          markets={MOCK_ALTERNATIVE_MARKETS}
-          onNavigate={handleNavigate}
-          onShowToast={showToast}
-        />
-      )}
+        {currentPage === 'markets' && (
+          <MarketsPage
+            markets={MOCK_ALTERNATIVE_MARKETS}
+            onNavigate={handleNavigate}
+            onShowToast={showToast}
+          />
+        )}
 
-      {currentPage === 'monitoring' && (
-        <MonitoringPage
-          alerts={MOCK_ALERTS}
-          products={products}
-          onNavigate={handleNavigate}
-          onShowToast={showToast}
-        />
-      )}
+        {currentPage === 'monitoring' && (
+          <MonitoringPage
+            alerts={alerts}
+            products={products}
+            continuousJobs={continuousJobs}
+            onRunJobCycle={handleRunJobCycle}
+            onNavigate={handleNavigate}
+            onShowToast={showToast}
+          />
+        )}
 
-      {currentPage === 'reports' && (
-        <ReportsPage
-          onTriggerDownload={handleTriggerDownload}
-          onNavigate={handleNavigate}
-          onShowToast={showToast}
-        />
-      )}
+        {currentPage === 'reports' && (
+          <ReportsPage
+            onTriggerDownload={handleTriggerDownload}
+            onNavigate={handleNavigate}
+            onShowToast={showToast}
+          />
+        )}
 
-      {currentPage === 'settings' && (
-        <SettingsPage
-          rankingWeights={rankingWeights}
-          onUpdateWeights={setRankingWeights}
-          onShowToast={showToast}
-        />
-      )}
+        {currentPage === 'settings' && (
+          <SettingsPage
+            rankingWeights={rankingWeights}
+            onUpdateWeights={setRankingWeights}
+            onShowToast={showToast}
+          />
+        )}
 
-      {/* Floating Toast Notification Container */}
-      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
-    </Shell>
-  </MarketDataProvider>
-);
+        {/* Floating Toast Notification Container */}
+        <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+      </Shell>
+    </MarketDataProvider>
+  );
 }
+
